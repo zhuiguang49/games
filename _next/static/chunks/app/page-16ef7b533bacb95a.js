@@ -89,13 +89,14 @@
 
             setGameState((prev) => {
               const newMessages = customMessage ? [...prev.messages.slice(-5), customMessage] : prev.messages;
+              // Only update if values have actually changed to prevent unnecessary re-renders
               if (prev.plantCount !== newPlantCount ||
                   prev.humanCount !== newHumanCountForDisplay ||
                   prev.tigerCount !== newTigerCount ||
                   prev.woodCount !== newWoodCount ||
                   prev.oxygenLevel !== updatedOxygenLevel ||
-                  JSON.stringify(prev.grid) !== JSON.stringify(newGrid) || // 更可靠的 grid 比较
-                  prev.messages.join() !== newMessages.join() // 比较消息数组内容
+                  JSON.stringify(prev.grid) !== JSON.stringify(newGrid) ||
+                  prev.messages.join() !== newMessages.join()
                  ) {
                 return {
                   ...prev,
@@ -111,7 +112,7 @@
               return prev;
             });
           },
-          [gameState.oxygenLevel, gameState.currentLevel, gameState.messages] // 添加 gameState.messages
+          [gameState.oxygenLevel, gameState.currentLevel, gameState.messages]
         );
 
 
@@ -214,9 +215,11 @@
                         }
                         return c;
                     }));
-                    if (gridNeedsUpdate) { // 只有当格子真的被清空时才更新
+                    if (gridNeedsUpdate) {
+                         // Call updateGridAndStats directly if grid changed, instead of relying on the setGameState's return
+                         // This ensures stats are updated based on the very latest grid.
                          updateGridAndStats(newGrid, 0);
-                         return {...prev, grid: newGrid};
+                         return {...prev, grid: newGrid}; // Still return the new state for React
                     }
                     return prev;
                 });
@@ -225,7 +228,7 @@
             }
             });
             return () => decayTimers.forEach(clearTimeout);
-        }, [gameState.grid, addMessage, updateGridAndStats]);
+        }, [gameState.grid, addMessage, updateGridAndStats]); // updateGridAndStats is a dependency now
 
 
         // 火焰熄灭 useEffect
@@ -252,64 +255,91 @@
         }, [gameState.grid, addMessage, updateGridAndStats]);
 
 
-        // 第三关倒计时和洪水
+        // 第三关倒计时 useEffect
         (0, l.useEffect)(() => {
-            let rainIntervalId; // 用于控制雨的视觉效果
             let countdownIntervalId;
-
-            if (3 === gameState.currentLevel && gameState.timeLeft > 0 && !gameState.isGameOver && !gameState.isRaining) {
+            if (gameState.currentLevel === 3 && gameState.timeLeft > 0 && !gameState.isGameOver && !gameState.isRaining) {
                 countdownIntervalId = setInterval(() => {
-                    setGameState((gs) => ({
-                        ...gs,
-                        timeLeft: gs.timeLeft - 1,
-                    }));
+                    setGameState(gs => ({ ...gs, timeLeft: gs.timeLeft - 1 }));
                 }, 1000);
-            } else if (
-                3 === gameState.currentLevel &&
-                0 === gameState.timeLeft &&
-                !gameState.isGameOver &&
-                !gameState.isRaining // 确保洪水开始逻辑只触发一次
-            ) {
+            } else if (gameState.currentLevel === 3 && gameState.timeLeft === 0 && !gameState.isGameOver && !gameState.isRaining) {
                 addMessage("120秒到！持续强降雨，引发大洪水！");
-                setGameState((gs) => ({ ...gs, isRaining: true, timeLeft: -1 })); // timeLeft设为-1避免重入，开始下雨
-
-                // 3秒后停止下雨视觉效果，并处理洪水逻辑
-                rainIntervalId = setTimeout(() => {
-                    let newGridAfterFlood = gameState.grid.map((row) =>
-                        row.map((cell) => {
-                            let tempCell = { ...cell };
-                            if (tempCell.content === "fire") {
-                                tempCell.content = "ash";
-                                tempCell.isFertile = true;
-                                tempCell.fireEndTime = undefined;
-                            } else if (tempCell.content !== "ash") {
-                                tempCell.content = null;
-                                tempCell.owner = null;
-                                tempCell.isFertile = false;
-                            }
-                            tempCell.isDecaying = false;
-                            return tempCell;
-                        }),
-                    );
-                    // 洪水后，游戏仍在第三关，玩家可以继续操作
-                    setGameState((gs) => ({
-                        ...gs,
-                        grid: newGridAfterFlood, // 先更新grid
-                        isRaining: false, // 雨停了
-                        isGameOver: false,
-                        // messages 会在 updateGridAndStats 中添加
-                    }));
-                    // 然后基于新的grid更新统计和氧气
-                    updateGridAndStats(newGridAfterFlood, 0, "洪水退去。有草木灰的地方土地肥沃（植物产氧10%），其余土地贫瘠（植物产氧1%）。草木灰可以增加土壤肥力！");
-
-                }, 3000); // 洪水逻辑在3秒后执行
+                setGameState(gs => ({ ...gs, isRaining: true, timeLeft: -1 })); // Mark timeLeft as handled, start rain
             }
+            return () => clearInterval(countdownIntervalId);
+        }, [gameState.currentLevel, gameState.timeLeft, gameState.isGameOver, gameState.isRaining, addMessage]);
 
+        // 第三关下雨及洪水效果 useEffect - 规则1 (新列表)
+        (0, l.useEffect)(() => {
+            let floodTimeoutId;
+            if (gameState.currentLevel === 3 && gameState.isRaining) {
+                // Rain visuals are active because isRaining is true
+                floodTimeoutId = setTimeout(() => {
+                    // This callback executes after 3 seconds of rain
+                    setGameState(prevGs => {
+                        // Double check if we are still in the raining state for level 3
+                        // This prevents applying flood if the game reset during the 3s timeout
+                        if (prevGs.currentLevel === 3 && prevGs.isRaining) {
+                            let newGridAfterFlood = prevGs.grid.map(row =>
+                                row.map(cell => {
+                                    let tempCell = { ...cell };
+                                    if (tempCell.content === 'fire') {
+                                        tempCell.content = 'ash';
+                                        tempCell.isFertile = true;
+                                        tempCell.fireEndTime = undefined;
+                                    } else if (tempCell.content !== 'ash') {
+                                        tempCell.content = null;
+                                        tempCell.owner = null;
+                                        tempCell.isFertile = false;
+                                    }
+                                    tempCell.isDecaying = false;
+                                    return tempCell;
+                                })
+                            );
+
+                            // Calculate stats and oxygen based on the new grid after flood
+                            let newPlantCount = 0;
+                            let newHumanCountForDisplay = 0;
+                            let newTigerCount = 0;
+                            let newWoodCount = 0;
+                            let activeHumansForOxygen = 0;
+                            let calculatedOxygen = 0;
+
+                            newGridAfterFlood.flat().forEach((cell) => {
+                              if (cell.content === "plant") {
+                                newPlantCount++;
+                                calculatedOxygen += (!cell.isFertile) ? 1 : 10;
+                              }
+                              if (cell.content === "human" || cell.owner === "human") newHumanCountForDisplay++;
+                              if (cell.content === "tiger") newTigerCount++;
+                              if (cell.content === "wood") newWoodCount++;
+                              if (cell.content === "human" || cell.owner === "human") activeHumansForOxygen++;
+                            });
+                            calculatedOxygen -= 5 * activeHumansForOxygen;
+                            const finalOxygen = Math.max(0, Math.min(100, calculatedOxygen));
+
+                            return {
+                                ...prevGs,
+                                grid: newGridAfterFlood,
+                                isRaining: false, // Rain stops
+                                isGameOver: false, // Game continues in Level 3
+                                messages: [...prevGs.messages.slice(-5), "洪水退去。有草木灰的地方土地肥沃（植物产氧10%），其余土地贫瘠（植物产氧1%）。草木灰可以增加土壤肥力！"],
+                                oxygenLevel: finalOxygen,
+                                plantCount: newPlantCount,
+                                humanCount: newHumanCountForDisplay,
+                                tigerCount: newTigerCount,
+                                woodCount: newWoodCount,
+                            };
+                        }
+                        // If not in level 3 anymore or rain already stopped, just ensure isRaining is false.
+                        return { ...prevGs, isRaining: false };
+                    });
+                }, 3000); // Flood effects apply after 3 seconds of rain
+            }
             return () => {
-                clearInterval(countdownIntervalId);
-                clearTimeout(rainIntervalId);
+                clearTimeout(floodTimeoutId);
             };
-        }, [gameState.currentLevel, gameState.timeLeft, gameState.isGameOver, gameState.isRaining, addMessage, updateGridAndStats, gameState.grid]);
+        }, [gameState.currentLevel, gameState.isRaining]); // Only depends on these to trigger/cleanup the timeout
 
 
         const saveHistory = () => {
@@ -489,14 +519,14 @@
                      }
                 }
 
-                if (finalMessage && finalMessage !== message) {
+                if (finalMessage && finalMessage !== message && finalMessage.trim() !== "") { // Ensure non-empty and different
                      addMessage(finalMessage);
-                } else if (message) {
+                } else if (message && message.trim() !== "") {
                      addMessage(message);
                 }
                 updateGridAndStats(tempGrid, directOxygenDelta);
 
-            } else if (message) {
+            } else if (message && message.trim() !== "") {
                 addMessage(message);
             }
         };
@@ -575,7 +605,7 @@
         let timerDisplayStyle = {
             textAlign: "center",
             color:
-            gameState.timeLeft < 10 ? "red" : gameState.timeLeft < 60 ? "#f57c00" : "black",
+            gameState.timeLeft < 10 && gameState.timeLeft >=0 ? "red" : gameState.timeLeft < 60 && gameState.timeLeft >=0 ? "#f57c00" : "black",
             marginTop: "0",
             marginBottom: "10px",
             flexShrink: 0,
@@ -616,7 +646,7 @@
                     },
                     children: ["当前关卡：", gameState.currentLevel],
                     }),
-                    3 === gameState.currentLevel && gameState.timeLeft >= 0 && // timeLeft >= 0 to show 0s before rain
+                    3 === gameState.currentLevel && gameState.timeLeft >= 0 &&
                     (0, o.jsxs)("h3", {
                         style: timerDisplayStyle,
                         children: ["倒计时: ", gameState.timeLeft, "s"],
@@ -664,37 +694,25 @@
                         onClick: () => {
                             saveHistory();
                             const newGrid = initialGrid();
-                            if (gameState.currentLevel < 3) {
-                                const nextLevel = gameState.currentLevel + 1;
-                                addMessage(`进入关卡 ${nextLevel}`);
-                                setGameState((prev) => ({
-                                    ...prev,
-                                    grid: newGrid,
-                                    oxygenLevel: 0, // 关卡切换，氧气归零
-                                    plantCount: 0, humanCount: 0, tigerCount: 0, woodCount: 0,
-                                    currentLevel: nextLevel,
-                                    timeLeft: 120,
-                                    isGameOver: false,
-                                    isRaining: false,
-                                    messages: [`欢迎来到关卡 ${nextLevel}`],
-                                    lastPlantConsumedByHumansCount: 0,
-                                }));
-                            } else { // 当前是第三关，点击按钮是 "重新开始游戏" -> 回到第一关
-                                addMessage("游戏结束，重新开始第一关");
-                                setGameState((prev) => ({
-                                    ...prev,
-                                    grid: newGrid,
-                                    oxygenLevel: 0, // 重新开始，氧气归零
-                                    plantCount: 0, humanCount: 0, tigerCount: 0, woodCount: 0,
-                                    currentLevel: 1,
-                                    timeLeft: 120,
-                                    isGameOver: false,
-                                    isRaining: false,
-                                    messages: [`欢迎来到生态保护游戏！`],
-                                    lastPlantConsumedByHumansCount: 0,
-                                }));
-                            }
-                            // 不需要再调用 updateGridAndStats，因为 setGameState 已经包含了所有必要的状态重置
+                            const targetLevel = gameState.currentLevel < 3 ? gameState.currentLevel + 1 : 1;
+                            const initialMessage = targetLevel === 1 ? "欢迎来到生态保护游戏！" : `欢迎来到关卡 ${targetLevel}`;
+                            const transitionMessage = gameState.currentLevel === 3 && targetLevel === 1 ? "游戏结束，重新开始第一关" : `进入关卡 ${targetLevel}`;
+                            addMessage(transitionMessage);
+
+                            setGameState({ // Directly set the full initial state for the new/reset level
+                                grid: newGrid,
+                                oxygenLevel: 0, // Crucial: Reset oxygen for new level
+                                plantCount: 0,
+                                humanCount: 0,
+                                tigerCount: 0,
+                                woodCount: 0,
+                                currentLevel: targetLevel,
+                                timeLeft: 120,
+                                messages: [initialMessage],
+                                isGameOver: false,
+                                isRaining: false, // Ensure rain is stopped on level change
+                                lastPlantConsumedByHumansCount: 0,
+                            });
                             setSelectedItem(null);
                             setSelectedWoods([]);
                         },
@@ -793,7 +811,7 @@
                                         width: '2px', height: `${10 + Math.random() * 10}px`,
                                         backgroundColor: 'lightblue',
                                         animation: `fall ${0.5 + Math.random() * 0.5}s linear infinite`,
-                                        top: `${-20 - Math.random() * 30}px`, // 雨滴从屏幕外开始
+                                        top: `${-20 - Math.random() * 30}px`,
                                         animationDelay: `${Math.random() * 2}s`,
                                     }
                                 }, `drop-${idx}`)
