@@ -304,259 +304,353 @@
             };
     
             const m_handleCellClick = (row_idx, col_idx) => {
-              x_saveHistory();
-    
-              let gridCopy_click = t.grid.map((row) =>
-                row.map((cell) => ({ ...cell })),
-              );
-              let clickedCell = gridCopy_click[row_idx][col_idx];
-              let message_click = "";
-    
-              if (r_selectedItem) {
-                if (
-                  null === clickedCell.content ||
-                  ("ash" === clickedCell.content && "plant" === r_selectedItem)
-                ) {
-                  if ("plant" === r_selectedItem) {
-                    if (clickedCell.isFertile || "ash" === clickedCell.content) {
-                      clickedCell.content = "plant";
-                      clickedCell.isFertile = !0;
-                      message_click = "放置了 植物";
-                      setSelectedItem(null);
-                    } else {
-                      message_click =
-                        "土地贫瘠，植物无法生长！请先用火制造草木灰恢复地力。";
-                    }
-                  } else if ("human" === r_selectedItem) {
-                    message_click = "放置了 人";
-                    if (t.oxygenLevel < 20) {
-                      message_click += "，但环境氧气浓度低于20%，人类窒息而亡！";
-                      clickedCell.content = "human-dead";
-                      clickedCell.isDecaying = !0;
-                    } else if (t.oxygenLevel > 30) {
-                      message_click +=
-                        "，但环境氧气浓度高于30%，人类因含氧量超标死亡！";
-                      clickedCell.content = "human-dead";
-                      clickedCell.isDecaying = !0;
-                    } else {
-                      clickedCell.content = "human";
-                      if (i(row_idx, col_idx, gridCopy_click)) {
-                        message_click += ", 附近有老虎威胁。";
+                x_saveHistory();
+              
+                let gridCopy_click = t.grid.map((row) =>
+                  row.map((cell) => ({ ...cell })),
+                );
+                let clickedCell = gridCopy_click[row_idx][col_idx];
+                let message_click = "";
+                let shouldUpdateGameState = true; // 标记是否需要调用 g_updateGameState
+              
+                if (r_selectedItem) {
+                  if (
+                    null === clickedCell.content ||
+                    ("ash" === clickedCell.content && "plant" === r_selectedItem)
+                  ) {
+                    if ("plant" === r_selectedItem) {
+                      if (clickedCell.isFertile || "ash" === clickedCell.content) {
+                        clickedCell.content = "plant";
+                        clickedCell.isFertile = !0;
+                        message_click = "放置了 植物";
                       } else {
-                        message_click += "。";
+                        message_click = "土地贫瘠，植物无法生长！请先用火制造草木灰恢复地力。";
+                        shouldUpdateGameState = false; // 操作无效，不更新主要游戏状态，只提示信息
                       }
-    
-                      let currentTotalHumanCount = 0;
-                      gridCopy_click.flat().forEach(cell => {
-                        if (cell.content === "human" || cell.owner === "human") {
-                          currentTotalHumanCount++;
-                        }
-                      });
-    
-                      if (currentTotalHumanCount > 0 && currentTotalHumanCount % 2 === 0) {
-                        let existingPlants_human = [];
-                        gridCopy_click.forEach((row, r_idx_plant) => {
-                          row.forEach((cell, c_idx_plant) => {
-                            if (cell.content === "plant") {
-                              existingPlants_human.push({ r: r_idx_plant, c: c_idx_plant });
-                            }
-                          });
-                        });
-    
-                        if (existingPlants_human.length > 0) {
-                          let plantToRemove_idx = Math.floor(
-                            Math.random() * existingPlants_human.length,
-                          );
-                          let plantCellToRemove =
-                            existingPlants_human[plantToRemove_idx];
-                          gridCopy_click[plantCellToRemove.r][
-                            plantCellToRemove.c
-                          ].content = null;
-                          gridCopy_click[plantCellToRemove.r][
-                            plantCellToRemove.c
-                          ].owner = null;
-                           message_click += " 由于人类增多，消耗了一株植物。";
-                        } else {
-                          message_click += " 人类增多，但没有植物可消耗。";
-                        }
-                      }
-                    }
-                    setSelectedItem(null);
-                  } else if ("tiger" === r_selectedItem) {
-                    clickedCell.content = "tiger";
-                    message_click = "放置了 老虎";
-                    setSelectedItem(null);
-                  }
-                } else if (
-                  "human" === r_selectedItem &&
-                  "house" === clickedCell.content &&
-                  null === clickedCell.owner
-                ) {
-                  clickedCell.owner = "human";
-                  message_click = "人住进了房子！";
-                  setSelectedItem(null);
-    
-                  let currentTotalHumanCount = 0;
-                  gridCopy_click.flat().forEach((cell) => {
-                    if (cell.content === "human" || cell.owner === "human") {
-                      currentTotalHumanCount++;
-                    }
-                  });
-    
-                  if (currentTotalHumanCount > 0 && currentTotalHumanCount % 2 === 0) {
-                    let existingPlants_human = [];
-                    gridCopy_click.forEach((row, r_idx_plant) => {
-                      row.forEach((cell, c_idx_plant) => {
+                      setSelectedItem(null);
+                    } else if ("human" === r_selectedItem) {
+                      // 预先计算放置此人后，对氧气和植物的潜在影响
+                      let tempGridForHumanPlacement = gridCopy_click.map(row => row.map(cell => ({...cell})));
+                      tempGridForHumanPlacement[row_idx][col_idx].content = "human"; // 假设放置成功
+              
+                      let tempOxygen = 0;
+                      let tempPlantCountForConsumption = 0;
+                      let tempActiveHumanCount = 0;
+              
+                      tempGridForHumanPlacement.flat().forEach(cell => {
                         if (cell.content === "plant") {
-                          existingPlants_human.push({
-                            r: r_idx_plant,
-                            c: c_idx_plant,
-                          });
+                          tempPlantCountForConsumption++;
+                          if (t.currentLevel === 3 && !cell.isFertile) {
+                            tempOxygen += 1;
+                          } else {
+                            tempOxygen += 10;
+                          }
+                        }
+                        if (cell.content === "human" || cell.owner === "human") {
+                          tempActiveHumanCount++;
                         }
                       });
+                      tempOxygen -= 5 * tempActiveHumanCount; // 减去包括新放置的人在内的耗氧
+              
+                      // 判断如果因为放这个人导致植物被消耗，氧气会进一步减少
+                      if (tempActiveHumanCount > 0 && tempActiveHumanCount % 2 === 0 && tempPlantCountForConsumption > 0) {
+                          // 假设被消耗的植物是10点产氧（需要更精确判断被消耗植物的类型）
+                          // 为了简化预判，我们先粗略估计，或者在实际消耗时再精确计算
+                          // 这里的关键是预判氧气是否会低于20%或高于30%
+                          // 更准确的做法是，模拟植物被消耗后的氧气
+                          let potentialOxygenAfterPlantConsumption = tempOxygen;
+                          // 查找一个植物来模拟消耗，并看其产氧量
+                          let plantFoundForConsumption = false;
+                          for(let r=0; r<5; r++){
+                              for(let c=0; c<4; c++){
+                                  if(tempGridForHumanPlacement[r][c].content === 'plant'){
+                                      if (t.currentLevel === 3 && !tempGridForHumanPlacement[r][c].isFertile) {
+                                          potentialOxygenAfterPlantConsumption -= 1;
+                                      } else {
+                                          potentialOxygenAfterPlantConsumption -= 10;
+                                      }
+                                      plantFoundForConsumption = true;
+                                      break;
+                                  }
+                              }
+                              if(plantFoundForConsumption) break;
+                          }
+                          if(plantFoundForConsumption) {
+                              tempOxygen = potentialOxygenAfterPlantConsumption;
+                          }
+                      }
+                      tempOxygen = Math.max(0, Math.min(100, tempOxygen));
+              
+              
+                      message_click = "放置了 人";
+                      if (tempOxygen < 20) {
+                        message_click += "，但预计环境氧气浓度将低于20%，人类会窒息而亡！";
+                        clickedCell.content = "human-dead"; // 实际放置为死亡状态
+                        clickedCell.isDecaying = !0;
+                      } else if (tempOxygen > 30) {
+                        message_click += "，但预计环境氧气浓度将高于30%，人类会因含氧量超标死亡！";
+                        clickedCell.content = "human-dead"; // 实际放置为死亡状态
+                        clickedCell.isDecaying = !0;
+                      } else {
+                        clickedCell.content = "human"; // 实际放置活人
+                        if (i(row_idx, col_idx, gridCopy_click)) {
+                          message_click += ", 附近有老虎威胁。";
+                        } else {
+                          message_click += "。";
+                        }
+              
+                        // 实际执行植物消耗
+                        let currentTotalHumanCountAfterPlacement = 0;
+                        gridCopy_click.flat().forEach(cell => { // 此时 gridCopy_click 已经放了新的人
+                          if (cell.content === "human" || cell.owner === "human") {
+                            currentTotalHumanCountAfterPlacement++;
+                          }
+                        });
+              
+                        if (currentTotalHumanCountAfterPlacement > 0 && currentTotalHumanCountAfterPlacement % 2 === 0) {
+                          let existingPlants_human = [];
+                          gridCopy_click.forEach((row, r_idx_plant) => {
+                            row.forEach((cell, c_idx_plant) => {
+                              if (cell.content === "plant") {
+                                existingPlants_human.push({ r: r_idx_plant, c: c_idx_plant });
+                              }
+                            });
+                          });
+              
+                          if (existingPlants_human.length > 0) {
+                            let plantToRemove_idx = Math.floor(Math.random() * existingPlants_human.length);
+                            let plantCellToRemove = existingPlants_human[plantToRemove_idx];
+                            gridCopy_click[plantCellToRemove.r][plantCellToRemove.c].content = null;
+                            gridCopy_click[plantCellToRemove.r][plantCellToRemove.c].owner = null;
+                            message_click += " 由于人类增多，消耗了一株植物。";
+                          } else {
+                            message_click += " 人类增多，但没有植物可消耗。";
+                          }
+                        }
+                      }
+                      setSelectedItem(null);
+                    } else if ("tiger" === r_selectedItem) {
+                      clickedCell.content = "tiger";
+                      message_click = "放置了 老虎";
+                      setSelectedItem(null);
+                    }
+                  } else if (
+                    "human" === r_selectedItem &&
+                    "house" === clickedCell.content &&
+                    null === clickedCell.owner
+                  ) {
+                    // 预判人住进房子后的氧气情况
+                    let tempGridForHouseMove = gridCopy_click.map(row => row.map(cell => ({...cell})));
+                    tempGridForHouseMove[row_idx][col_idx].owner = "human";
+              
+                    let tempOxygenHouse = 0;
+                    let tempPlantCountForConsumptionHouse = 0;
+                    let tempActiveHumanCountHouse = 0;
+              
+                    tempGridForHouseMove.flat().forEach(cell => {
+                      if (cell.content === "plant") {
+                        tempPlantCountForConsumptionHouse++;
+                        if (t.currentLevel === 3 && !cell.isFertile) {
+                          tempOxygenHouse += 1;
+                        } else {
+                          tempOxygenHouse += 10;
+                        }
+                      }
+                      if (cell.content === "human" || cell.owner === "human") {
+                        tempActiveHumanCountHouse++;
+                      }
                     });
-                    if (existingPlants_human.length > 0) {
-                      let plantToRemove_idx = Math.floor(
-                        Math.random() * existingPlants_human.length,
-                      );
-                      let plantCellToRemove =
-                        existingPlants_human[plantToRemove_idx];
-                      gridCopy_click[plantCellToRemove.r][
-                        plantCellToRemove.c
-                      ].content = null;
-                      gridCopy_click[plantCellToRemove.r][
-                        plantCellToRemove.c
-                      ].owner = null;
-                      message_click += " 由于人类增多，消耗了一株植物。";
+                    tempOxygenHouse -= 5 * tempActiveHumanCountHouse;
+              
+                    if (tempActiveHumanCountHouse > 0 && tempActiveHumanCountHouse % 2 === 0 && tempPlantCountForConsumptionHouse > 0) {
+                        let potentialOxygenAfterPlantConsumptionHouse = tempOxygenHouse;
+                        let plantFoundForConsumptionHouse = false;
+                        for(let r=0; r<5; r++){
+                            for(let c=0; c<4; c++){
+                                if(tempGridForHouseMove[r][c].content === 'plant'){
+                                    if (t.currentLevel === 3 && !tempGridForHouseMove[r][c].isFertile) {
+                                        potentialOxygenAfterPlantConsumptionHouse -= 1;
+                                    } else {
+                                        potentialOxygenAfterPlantConsumptionHouse -= 10;
+                                    }
+                                    plantFoundForConsumptionHouse = true;
+                                    break;
+                                }
+                            }
+                            if(plantFoundForConsumptionHouse) break;
+                        }
+                        if(plantFoundForConsumptionHouse){
+                            tempOxygenHouse = potentialOxygenAfterPlantConsumptionHouse;
+                        }
+                    }
+                    tempOxygenHouse = Math.max(0, Math.min(100, tempOxygenHouse));
+              
+                    message_click = "人住进了房子！";
+                    if (tempOxygenHouse < 20) {
+                        message_click += "但预计房屋内氧气浓度将低于20%，入住的人类会窒息而亡！";
+                        // 逻辑上人已经住进去了，但会立刻死。或者阻止入住？按你的描述，是死亡。
+                        // 这里我们先让人住进去，然后useEffect会处理死亡。
+                        // 但更好的做法是，如果预判会死，则直接让人死在房子里，或者不允许入住。
+                        // 为了简化，我们先让人住进去，然后在useEffect中统一处理死亡逻辑。
+                        // 不过，如果希望更精确，可以在这里就标记死亡，但这会使代码更复杂。
+                        // 我们先按原逻辑，让人住进去，然后让useEffect判断。
+                        clickedCell.owner = "human"; // 允许入住
+                    } else if (tempOxygenHouse > 30) {
+                        message_click += "但预计房屋内氧气浓度将高于30%，入住的人类会因含氧量超标死亡！";
+                        clickedCell.owner = "human"; // 允许入住
                     } else {
-                      message_click += " 人类增多，但没有植物可消耗。";
+                      clickedCell.owner = "human";
+                    }
+              
+                    // 实际执行植物消耗 (人住进房子也算增加了一个活跃人类)
+                    let currentTotalHumanCountAfterHouseMove = 0;
+                    gridCopy_click.flat().forEach(cell => {
+                      if (cell.content === "human" || cell.owner === "human") {
+                        currentTotalHumanCountAfterHouseMove++;
+                      }
+                    });
+              
+                    if (currentTotalHumanCountAfterHouseMove > 0 && currentTotalHumanCountAfterHouseMove % 2 === 0) {
+                      let existingPlants_human = [];
+                      gridCopy_click.forEach((row, r_idx_plant) => {
+                        row.forEach((cell, c_idx_plant) => {
+                          if (cell.content === "plant") {
+                            existingPlants_human.push({ r: r_idx_plant, c: c_idx_plant });
+                          }
+                        });
+                      });
+                      if (existingPlants_human.length > 0) {
+                        let plantToRemove_idx = Math.floor(Math.random() * existingPlants_human.length);
+                        let plantCellToRemove = existingPlants_human[plantToRemove_idx];
+                        gridCopy_click[plantCellToRemove.r][plantCellToRemove.c].content = null;
+                        gridCopy_click[plantCellToRemove.r][plantCellToRemove.c].owner = null;
+                        message_click += " 由于人类增多，消耗了一株植物。";
+                      } else {
+                        message_click += " 人类增多，但没有植物可消耗。";
+                      }
+                    }
+                    setSelectedItem(null);
+                  } else {
+                    message_click = "这个格子已经被占用了或操作无效！";
+                    shouldUpdateGameState = false;
+                  }
+                } else if ("plant" === clickedCell.content) {
+                  if (i(row_idx, col_idx, gridCopy_click)) {
+                    clickedCell.content = "fire";
+                    clickedCell.fireEndTime = Date.now() + 3e4;
+                    message_click = h_handleFireEffect(
+                      gridCopy_click,
+                      (message_click = "植物在老虎的威胁下被点燃了！"),
+                    );
+                  } else if (t.currentLevel >= 2) {
+                    clickedCell.content = "wood";
+                    message_click =
+                      "植物变成了木头！收集4块木头可以建造房子。";
+                  } else {
+                    message_click =
+                      "点击植物。在第二关及以后，植物可以转化为木头。";
+                    shouldUpdateGameState = false; //只是提示，不改变格子状态
+                  }
+                } else if ("wood" === clickedCell.content && t.currentLevel >= 2) {
+                  let woodId_click = clickedCell.id;
+                  if (!d_selectedWoods.includes(woodId_click)) {
+                    let tempSelectedWoods = [...d_selectedWoods, woodId_click];
+                    setSelectedWoods(tempSelectedWoods);
+                    message_click = "选择了木头 (".concat(
+                      tempSelectedWoods.length,
+                      "/4)。",
+                    );
+                    if (4 === tempSelectedWoods.length) {
+                      let housePlaced_flag = !1;
+                      for (let r_house = 0; r_house < 5; r_house++) {
+                        for (let c_house = 0; c_house < 4; c_house++)
+                          if (
+                            null === gridCopy_click[r_house][c_house].content ||
+                            "ash" === gridCopy_click[r_house][c_house].content
+                          ) {
+                            gridCopy_click[r_house][c_house].content = "house";
+                            gridCopy_click[r_house][c_house].isFertile = !0;
+                            message_click = "4块木头合成了一座房子！";
+                            tempSelectedWoods.forEach((id_to_remove_wood) => {
+                              gridCopy_click[Math.floor(id_to_remove_wood / 4)][
+                                id_to_remove_wood % 4
+                              ].content = null;
+                            });
+                            housePlaced_flag = !0;
+                            break;
+                          }
+                        if (housePlaced_flag) break;
+                      }
+                      housePlaced_flag || (message_click = "没有空地建造房子！");
+                      setSelectedWoods([]);
                     }
                   }
-                } else {
-                  message_click = "这个格子已经被占用了或操作无效！";
-                }
-              } else if ("plant" === clickedCell.content) {
-                if (i(row_idx, col_idx, gridCopy_click)) {
+                } else if ("plant-dead" === clickedCell.content) {
                   clickedCell.content = "fire";
                   clickedCell.fireEndTime = Date.now() + 3e4;
                   message_click = h_handleFireEffect(
                     gridCopy_click,
-                    (message_click = "植物在老虎的威胁下被点燃了！"),
+                    (message_click = "枯叶被点燃，变成了火！"),
                   );
-                } else if (t.currentLevel >= 2) {
-                  clickedCell.content = "wood";
-                  message_click =
-                    "植物变成了木头！收集4块木头可以建造房子。";
                 } else {
                   message_click =
-                    "点击植物。在第二关及以后，植物可以转化为木头。";
+                    "请先选择一个物品，或点击植物/枯叶进行转化。";
+                  shouldUpdateGameState = false; //只是提示
                 }
-              } else if ("wood" === clickedCell.content && t.currentLevel >= 2) {
-                let woodId_click = clickedCell.id;
-                if (!d_selectedWoods.includes(woodId_click)) {
-                  let tempSelectedWoods = [...d_selectedWoods, woodId_click];
-                  setSelectedWoods(tempSelectedWoods);
-                  message_click = "选择了木头 (".concat(
-                    tempSelectedWoods.length,
-                    "/4)。",
-                  );
-                  if (4 === tempSelectedWoods.length) {
-                    let housePlaced_flag = !1;
-                    for (let r_house = 0; r_house < 5; r_house++) {
-                      for (let c_house = 0; c_house < 4; c_house++)
-                        if (
-                          null === gridCopy_click[r_house][c_house].content ||
-                          "ash" === gridCopy_click[r_house][c_house].content
-                        ) {
-                          gridCopy_click[r_house][c_house].content = "house";
-                          gridCopy_click[r_house][c_house].isFertile = !0;
-                          message_click = "4块木头合成了一座房子！";
-                          tempSelectedWoods.forEach((id_to_remove_wood) => {
-                            gridCopy_click[Math.floor(id_to_remove_wood / 4)][
-                              id_to_remove_wood % 4
-                            ].content = null;
-                          });
-                          housePlaced_flag = !0;
-                          break;
-                        }
-                      if (housePlaced_flag) break;
-                    }
-                    housePlaced_flag || (message_click = "没有空地建造房子！");
-                    setSelectedWoods([]);
-                  }
+              
+                if (message_click) {
+                    f_addMessage(message_click);
                 }
-              } else if ("plant-dead" === clickedCell.content) {
-                clickedCell.content = "fire";
-                clickedCell.fireEndTime = Date.now() + 3e4;
-                message_click = h_handleFireEffect(
-                  gridCopy_click,
-                  (message_click = "枯叶被点燃，变成了火！"),
-                );
-              } else {
-                message_click =
-                  "请先选择一个物品，或点击植物/枯叶进行转化。";
-              }
-    
-              message_click && f_addMessage(message_click);
-    
-              let tigerEats_flag = !1;
-              let gridAfterTiger_click = gridCopy_click.map((row) =>
-                row.map((cell) => ({ ...cell })),
-              );
-    
-              if (t.currentLevel >= 2) {
-                for (let r_tg_row = 0; r_tg_row < 5; r_tg_row++) {
-                  for (let c_tg_col = 0; c_tg_col < 4; c_tg_col++) {
-                    if (
-                      "tiger" ===
-                      gridAfterTiger_click[r_tg_row][c_tg_col].content
-                    ) {
-                      let humanEaten_flag = !1;
-                      for (let [dr_tg, dc_tg] of [
-                        [-1, 0], [1, 0], [0, -1], [0, 1],
-                        [-1, -1], [-1, 1], [1, -1], [1, 1],
-                      ]) {
-                        let h_row = r_tg_row + dr_tg,
-                          h_col = c_tg_col + dc_tg;
-                        if (
-                          h_row >= 0 &&
-                          h_row < 5 &&
-                          h_col >= 0 &&
-                          h_col < 4
-                        ) {
-                          let targetCell_tg =
-                            gridAfterTiger_click[h_row][h_col];
-                          if (
-                            "human" === targetCell_tg.content &&
-                            targetCell_tg.owner !== "human"
-                          ) {
-                            gridAfterTiger_click[h_row][h_col].content =
-                              "human-dead";
-                            gridAfterTiger_click[h_row][h_col].isDecaying = !0;
-                            f_addMessage(
-                              "老虎在("
-                                .concat(r_tg_row + 1, ",")
-                                .concat(c_tg_col + 1, ")吃掉了(")
-                                .concat(h_row + 1, ",")
-                                .concat(h_col + 1, ")的人！"),
-                            );
-                            tigerEats_flag = !0;
-                            humanEaten_flag = !0;
-                            break;
+              
+              
+                if (shouldUpdateGameState) {
+                    let tigerEats_flag = !1;
+                    // 老虎吃人逻辑现在基于 gridCopy_click (已经处理了放置和可能的植物消耗)
+                    let gridForTigerLogic = gridCopy_click.map((row) =>
+                      row.map((cell) => ({ ...cell })),
+                    );
+              
+                    if (t.currentLevel >= 2) {
+                      for (let r_tg_row = 0; r_tg_row < 5; r_tg_row++) {
+                        for (let c_tg_col = 0; c_tg_col < 4; c_tg_col++) {
+                          if ("tiger" === gridForTigerLogic[r_tg_row][c_tg_col].content) {
+                            let humanEaten_flag = !1;
+                            for (let [dr_tg, dc_tg] of [
+                              [-1, 0], [1, 0], [0, -1], [0, 1],
+                              [-1, -1], [-1, 1], [1, -1], [1, 1],
+                            ]) {
+                              let h_row = r_tg_row + dr_tg,
+                                h_col = c_tg_col + dc_tg;
+                              if (h_row >= 0 && h_row < 5 && h_col >= 0 && h_col < 4) {
+                                let targetCell_tg = gridForTigerLogic[h_row][h_col];
+                                if (
+                                  "human" === targetCell_tg.content &&
+                                  targetCell_tg.owner !== "human" // 人不在房子里
+                                ) {
+                                  gridForTigerLogic[h_row][h_col].content = "human-dead";
+                                  gridForTigerLogic[h_row][h_col].isDecaying = !0;
+                                  f_addMessage(
+                                    "老虎在("
+                                      .concat(r_tg_row + 1, ",")
+                                      .concat(c_tg_col + 1, ")吃掉了(")
+                                      .concat(h_row + 1, ",")
+                                      .concat(h_col + 1, ")的人！"),
+                                  );
+                                  tigerEats_flag = !0;
+                                  humanEaten_flag = !0;
+                                  break;
+                                }
+                              }
+                            }
+                            if (humanEaten_flag) break;
                           }
                         }
+                        if (tigerEats_flag) break;
                       }
-                      if (humanEaten_flag) break;
                     }
-                  }
-                  if (tigerEats_flag) break;
+                    g_updateGameState(tigerEats_flag ? gridForTigerLogic : gridCopy_click);
                 }
-              }
-    
-              g_updateGameState(
-                tigerEats_flag ? gridAfterTiger_click : gridCopy_click,
-              );
-            };
+              };
     
             const p_selectItem = (itemName) => {
               setSelectedItem(itemName);
