@@ -10,11 +10,10 @@
       var o = n_module(2860),
         l = n_module(3200);
 
-      // 规则2: 检查植物周边是否有老虎 (九宫格)
       let isTigerInSurrounding = (r_idx, c_idx, grid) => {
         for (let dr = -1; dr <= 1; dr++) {
           for (let dc = -1; dc <= 1; dc++) {
-            if (dr === 0 && dc === 0) continue; // Skip the plant cell itself
+            if (dr === 0 && dc === 0) continue;
             let nr = r_idx + dr;
             let nc = c_idx + dc;
             if (nr >= 0 && nr < 5 && nc >= 0 && nc < 4 && grid[nr][nc].content === "tiger") {
@@ -35,7 +34,7 @@
                 .map((_, c_idx) => ({
                   id: 4 * r_idx + c_idx,
                   content: null,
-                  isFertile: !0, // 默认土地肥沃，第三关洪水后会改变
+                  isFertile: true, // Default to fertile, will change in L3 flood
                   owner: null,
                   isDecaying: !1,
                   fireEndTime: undefined,
@@ -44,9 +43,9 @@
 
         const [gameState, setGameState] = (0, l.useState)({
           grid: initialGrid(),
-          oxygenLevel: 0, // 初始氧气为0
+          oxygenLevel: 0,
           plantCount: 0,
-          humanCount: 0, // UI显示的人数
+          humanCount: 0,
           tigerCount: 0,
           woodCount: 0,
           currentLevel: 1,
@@ -68,7 +67,6 @@
           }));
         }, []);
 
-        // 规则1：独立的氧气计算逻辑 - 仅基于直接操作的delta
         const calculateNewOxygenBasedOnAction = (currentOxygen, actionOxygenChange) => {
             let newOxygen = currentOxygen + actionOxygenChange;
             return Math.max(0, Math.min(100, newOxygen));
@@ -76,14 +74,13 @@
 
         const updateGridAndStats = (0, l.useCallback)((newGrid, actionOxygenChange = 0, customMessage) => {
             let newPlantCount = 0;
-            let newHumanCountForDisplay = 0; // 规则3 (新列表): 用于UI显示的人数
+            let newHumanCountForDisplay = 0;
             let newTigerCount = 0;
             let newWoodCount = 0;
 
             newGrid.flat().forEach((cell) => {
               if (cell.content === "plant") newPlantCount++;
-              // 规则3 (新列表): 人类数量应包括住在屋子里的
-              if (cell.content === "human" || cell.owner === "human") newHumanCountForDisplay++;
+              if (cell.content === "human" || cell.owner === "human") newHumanCountForDisplay++; // 规则3(新): 计入房子里的人
               if (cell.content === "tiger") newTigerCount++;
               if (cell.content === "wood") newWoodCount++;
             });
@@ -114,7 +111,7 @@
               return prev;
             });
           },
-          [gameState.oxygenLevel, gameState.currentLevel] // 依赖 oxygenLevel 来计算新的值
+          [gameState.oxygenLevel, gameState.currentLevel] // gameState.currentLevel is not directly used here but good for context
         );
 
 
@@ -151,7 +148,7 @@
             return { updatedGrid: newGrid, message: messageLog };
         }, []);
 
-        // 死亡判断 useEffect - 规则4 (新列表)
+        // 死亡判断 useEffect
         (0, l.useEffect)(() => {
             let gridCopyForDeath = gameState.grid.map((row) => row.map((cell) => ({ ...cell })));
             let deathMessages = [];
@@ -170,7 +167,7 @@
                         );
                         if (isHumanInHouse) {
                             gridCopyForDeath[r_idx][c_idx].owner = null; // 人死了，房子空了
-                            // 规则4 (新列表): 住在屋子中的人类死后，土地不应该变色。房子还在，土地状态不变。
+                            // 规则4 (新列表): 土地不变色，所以不修改 cell.isFertile 或 cell.content (房子还在)
                         } else {
                             gridCopyForDeath[r_idx][c_idx].content = "human-dead";
                             gridCopyForDeath[r_idx][c_idx].isDecaying = true;
@@ -196,7 +193,7 @@
               deathMessages.forEach(addMessage);
             }
             if (gridChangedDueToDeath) {
-              updateGridAndStats(gridCopyForDeath, 0); // 死亡不直接改变氧气
+              updateGridAndStats(gridCopyForDeath, 0);
             }
         }, [gameState.oxygenLevel, gameState.grid, gameState.plantCount, gameState.humanCount, addMessage, updateGridAndStats]);
 
@@ -222,7 +219,7 @@
                     }
                     return prev;
                 });
-                }, 1000); // 1秒后消失
+                }, 1000);
                 decayTimers.push(timerId);
             }
             });
@@ -234,9 +231,10 @@
         (0, l.useEffect)(() => {
             let gridChangedByFireOut = false;
             let gridAfterFireOut = gameState.grid.map(row => row.map(cell => ({ ...cell })));
+            const currentTime = Date.now();
 
             gameState.grid.flat().forEach((cell) => {
-            if (cell.content === "fire" && cell.fireEndTime && Date.now() >= cell.fireEndTime) {
+            if (cell.content === "fire" && cell.fireEndTime && currentTime >= cell.fireEndTime) {
                 const r = Math.floor(cell.id / 4);
                 const c = cell.id % 4;
                 gridAfterFireOut[r][c].content = "ash";
@@ -253,9 +251,11 @@
         }, [gameState.grid, addMessage, updateGridAndStats]);
 
 
-        // 第三关倒计时和洪水 - 规则1 (新列表) & 7
+        // 第三关倒计时和洪水 - 规则1 (新列表)
         (0, l.useEffect)(() => {
+            let rainTimeoutId;
             let interval_id;
+
             if (3 === gameState.currentLevel && gameState.timeLeft > 0 && !gameState.isGameOver && !gameState.isRaining) {
             interval_id = setInterval(() => {
                 setGameState((gs) => ({
@@ -267,12 +267,12 @@
             3 === gameState.currentLevel &&
             0 === gameState.timeLeft &&
             !gameState.isGameOver &&
-            !gameState.isRaining
+            !gameState.isRaining // 确保只触发一次洪水开始
             ) {
             addMessage("120秒到！持续强降雨，引发大洪水！");
-            setGameState((gs) => ({ ...gs, isRaining: true })); // 视觉效果开始
+            setGameState((gs) => ({ ...gs, isRaining: true, timeLeft: -1 })); // timeLeft设为-1避免重入
 
-            setTimeout(() => { // 规则4 (新列表): 降雨持续3秒
+            rainTimeoutId = setTimeout(() => { // 雨持续3秒
                 let newGridAfterFlood = gameState.grid.map((row) =>
                 row.map((cell) => {
                     let tempCell = { ...cell };
@@ -289,16 +289,19 @@
                     return tempCell;
                 }),
                 );
-                // 洪水不直接改变氧气，而是通过清空场上元素间接影响
                 updateGridAndStats(newGridAfterFlood, 0, "洪水退去。有草木灰的地方土地肥沃（植物产氧10%），其余土地贫瘠（植物产氧1%）。草木灰可以增加土壤肥力！");
+                // 雨停了，但游戏仍在第三关
                 setGameState((gs) => ({
-                ...gs,
-                isRaining: false, // 雨停了，但仍然是第三关
-                isGameOver: false, // 确保游戏可以继续，让玩家在第三关恢复生态
+                    ...gs,
+                    isRaining: false,
+                    isGameOver: false, // 确保游戏可以继续
                 }));
-            }, 3000); // 3秒后洪水逻辑结束
+            }, 3000);
             }
-            return () => clearInterval(interval_id);
+            return () => {
+                clearInterval(interval_id);
+                clearTimeout(rainTimeoutId);
+            };
         }, [gameState.currentLevel, gameState.timeLeft, gameState.isGameOver, gameState.isRaining, addMessage, updateGridAndStats, gameState.grid]);
 
         const saveHistory = () => {
@@ -328,13 +331,12 @@
                     gridCopy[row_idx][col_idx].content = "human-dead";
                     gridCopy[row_idx][col_idx].isDecaying = true;
                     message = "放置了人，但立刻被老虎吃掉了！";
-                    // 人被吃，不直接减少氧气（因为他没存活消耗），也不增加（因为没成功放置）
                     gridReallyChanged = true;
                     setSelectedItem(null);
                 } else if ("house" === clickedCell.content && null === clickedCell.owner) {
                     clickedCell.owner = "human";
                     message = "人住进了房子，躲避了老虎！";
-                    directOxygenDelta -= 5; // 规则1
+                    directOxygenDelta -= 5;
                     gridReallyChanged = true;
                     setSelectedItem(null);
                 } else {
@@ -346,12 +348,12 @@
                         clickedCell.content = "plant";
                         clickedCell.isFertile = ("ash" === clickedCell.content) || clickedCell.isFertile;
                         message = "放置了植物";
-                        directOxygenDelta += 10; // 规则1
+                        directOxygenDelta += 10;
                         gridReallyChanged = true;
                     } else if ("human" === selectedItem) {
                         clickedCell.content = "human";
                         message = "放置了人";
-                        directOxygenDelta -= 5; // 规则1
+                        directOxygenDelta -= 5;
                         if (isTigerInSurrounding(row_idx, col_idx, gridCopy) && gameState.currentLevel >=2) message += "，附近有老虎威胁。";
                         gridReallyChanged = true;
                     } else if ("tiger" === selectedItem && gameState.currentLevel >= 2) {
@@ -363,36 +365,33 @@
                 } else if ("human" === selectedItem && "house" === clickedCell.content && null === clickedCell.owner) {
                     clickedCell.owner = "human";
                     message = "人住进了房子！";
-                    directOxygenDelta -= 5; // 规则1
+                    directOxygenDelta -= 5;
                     gridReallyChanged = true;
                     setSelectedItem(null);
                 } else {
                     message = "这个格子已经被占用了或操作无效！";
                 }
             } else if ("plant" === clickedCell.content) {
-                 // 规则2 (新列表): 周边（九宫格）有老虎时植物燃烧，否则变木头 (仅L2+)
                 if (gameState.currentLevel >= 2) {
-                    if (isTigerInSurrounding(row_idx, col_idx, gridCopy)) {
+                    if (isTigerInSurrounding(row_idx, col_idx, gridCopy)) { // 规则2(新)
                         clickedCell.content = "fire";
-                        clickedCell.fireEndTime = Date.now() + 20000; // 规则3
+                        clickedCell.fireEndTime = Date.now() + 20000; // 规则3(新)
                         message = "植物在老虎的威胁下被点燃了！燃烧20秒后将变为草木灰。";
-                        directOxygenDelta -= 10; // 规则1
+                        directOxygenDelta -= 10;
                         gridReallyChanged = true;
                     } else {
                         clickedCell.content = "wood";
                         message = "植物变成了木头！";
-                        directOxygenDelta -= 10; // 规则1
+                        directOxygenDelta -= 10;
                         gridReallyChanged = true;
                     }
                 } else if (gameState.currentLevel === 3 && !clickedCell.isFertile && clickedCell.content === "plant") {
-                     // 规则10 (旧列表): 第三关，点击贫瘠土地上的植物变成火增加肥力
                     clickedCell.content = "fire";
-                    clickedCell.fireEndTime = Date.now() + 20000; // 规则3
+                    clickedCell.fireEndTime = Date.now() + 20000;
                     message = "植物燃烧成草木灰可以增加土壤肥力。";
-                    // 此操作不直接增减氧气，而是通过后续灰烬地种植物来体现
+                    // 此特定操作不直接影响氧气，肥力效果体现在灰烬地上种植物
                     gridReallyChanged = true;
-                }
-                 else {
+                } else {
                     message = "点击植物。";
                 }
             } else if ("wood" === clickedCell.content && gameState.currentLevel >= 2) {
@@ -431,7 +430,7 @@
                 let tempGrid = gridCopy.map(row => row.map(cell => ({ ...cell })));
                 let finalMessage = message;
 
-                // 规则5 (新列表): 老虎吃掉所有不在房屋中的人
+                // 老虎吃掉所有不在房屋中的人 (规则5 新)
                 if (gameState.currentLevel >= 2 && tempGrid.some(row => row.some(cell => cell.content === "tiger"))) {
                     let humansEatenThisTurnCount = 0;
                     for (let r_h = 0; r_h < 5; r_h++) {
@@ -531,8 +530,9 @@
             let backgroundColor = "#D2B48C";
             if (cell.content === "fire") backgroundColor = "#ffcc80";
             else if (cell.content === "ash") backgroundColor = "#A0A0A0";
+            // 规则8: 第三关贫瘠土地颜色，不包括房子和灰烬
             else if (gameState.currentLevel === 3 && !cell.isFertile && cell.content !== "house" && cell.content !== "ash") backgroundColor = "#E0C9A6";
-            else if (cell.isFertile && cell.content !== "house") backgroundColor = "#B8860B";
+            else if (cell.isFertile && cell.content !== "house") backgroundColor = "#B8860B"; // 肥沃土地颜色 (深金黄色)
 
             return {
             border: "1px solid #a5d6a7",
@@ -612,8 +612,7 @@
                     },
                     children: ["当前关卡：", gameState.currentLevel],
                     }),
-                    // 规则1 (新列表): 下雨只在第三关
-                    3 === gameState.currentLevel && gameState.timeLeft > 0 &&
+                    3 === gameState.currentLevel && gameState.timeLeft > 0 && // Only show timer if it's running
                     (0, o.jsxs)("h3", {
                         style: timerDisplayStyle,
                         children: ["倒计时: ", gameState.timeLeft, "s"],
@@ -660,28 +659,38 @@
                         (0, o.jsx)("button", {
                         onClick: () => {
                             saveHistory();
-                            let nextLevel = gameState.currentLevel < 3 ? gameState.currentLevel + 1 : 1;
-                            addMessage(gameState.currentLevel === 3 && nextLevel === 1 ? "游戏结束，重新开始第一关" : `进入关卡 ${nextLevel}`);
-                            const newGrid = initialGrid();
-
-                            setGameState((prev) => ({ // 规则2 (新列表): 关卡切换氧气独立
-                                ...prev,
-                                grid: newGrid,
-                                oxygenLevel: 0, // 明确重置氧气
-                                plantCount: 0,
-                                humanCount: 0,
-                                tigerCount: 0,
-                                woodCount: 0,
-                                currentLevel: nextLevel,
-                                timeLeft: 120,
-                                isGameOver: !1,
-                                isRaining: false,
-                                messages: [`欢迎来到关卡 ${nextLevel}`],
-                                lastPlantConsumedByHumansCount: 0,
-                                directOxygenChangeFromAction: 0,
-                            }));
-                            // updateGridAndStats(newGrid, 0); // 确保所有计数器和初始氧气正确
-
+                            const newGrid = initialGrid(); // 总是用全新的初始网格
+                            if (gameState.currentLevel < 3) {
+                                const nextLevel = gameState.currentLevel + 1;
+                                addMessage(`进入关卡 ${nextLevel}`);
+                                setGameState((prev) => ({
+                                    ...prev,
+                                    grid: newGrid,
+                                    oxygenLevel: 0, // 规则2 (新列表): 氧气独立
+                                    plantCount: 0, humanCount: 0, tigerCount: 0, woodCount: 0,
+                                    currentLevel: nextLevel,
+                                    timeLeft: 120, // 重置倒计时
+                                    isGameOver: false,
+                                    isRaining: false, // 新关卡不应该在下雨
+                                    messages: [`欢迎来到关卡 ${nextLevel}`],
+                                    lastPlantConsumedByHumansCount: 0,
+                                }));
+                            } else { // 当前是第三关，点击按钮是 "重新开始游戏"
+                                addMessage("游戏结束，重新开始第一关");
+                                setGameState((prev) => ({
+                                    ...prev,
+                                    grid: newGrid,
+                                    oxygenLevel: 0, // 规则2 (新列表)
+                                    plantCount: 0, humanCount: 0, tigerCount: 0, woodCount: 0,
+                                    currentLevel: 1, // 回到第一关
+                                    timeLeft: 120,
+                                    isGameOver: false,
+                                    isRaining: false, // 第一关肯定不下雨
+                                    messages: [`欢迎来到生态保护游戏！`],
+                                    lastPlantConsumedByHumansCount: 0,
+                                }));
+                            }
+                            updateGridAndStats(newGrid, 0); // 确保所有计数器和氧气基于新空网格正确设置
                             setSelectedItem(null);
                             setSelectedWoods([]);
                         },
@@ -705,9 +714,9 @@
                     children: [
                         { name: "plant", label: "植物 🌿" },
                         { name: "human", label: "人 🧑" },
-                        // 规则1 (新列表): 第一关不显示老虎图标
                         ...(gameState.currentLevel >= 2 ? [{ name: "tiger", label: "老虎 🐅" }] : []),
-                    ].map((item) =>
+                    ].filter(item => !(item.name === 'tiger' && gameState.currentLevel === 1))
+                    .map((item) =>
                         (0, o.jsx)(
                         "button",
                         {
@@ -756,9 +765,8 @@
                     }),
                 ],
                 }),
-                // 规则7 (新列表): 下雨视觉效果
                 gameState.isRaining && gameState.currentLevel === 3 && (
-                    (0, o.jsxs)("div", { // 使用 jsxs 包裹多个子元素
+                    (0, o.jsxs)("div", {
                         style: {
                             position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
                             backgroundColor: 'rgba(70, 100, 150, 0.4)', zIndex: 10,
@@ -767,15 +775,14 @@
                             pointerEvents: 'none', overflow: 'hidden',
                         },
                         children: [
-                            (0, o.jsx)("div", { // 乌云
+                            (0, o.jsx)("div", {
                                 style: {
                                     fontSize: '5em', color: 'darkslategrey',
                                     marginTop: '5%', animation: 'cloudMove 10s linear infinite alternate',
                                 },
                                 children: "☁️"
                             }),
-                            // 雨滴效果
-                            ...Array(50).fill(null).map((_, idx) => ( // 使用 spread operator
+                            ...Array(50).fill(null).map((_, idx) => (
                                 (0, o.jsx)("div", {
                                     style: {
                                         position: 'absolute', left: `${Math.random() * 100}%`,
