@@ -89,7 +89,6 @@
 
             setGameState((prev) => {
               const newMessages = customMessage ? [...prev.messages.slice(-5), customMessage] : prev.messages;
-              // Only update if values have actually changed to prevent unnecessary re-renders
               if (prev.plantCount !== newPlantCount ||
                   prev.humanCount !== newHumanCountForDisplay ||
                   prev.tigerCount !== newTigerCount ||
@@ -149,18 +148,15 @@
             return { updatedGrid: newGrid, message: messageLog };
         }, []);
 
-        // 死亡判断 useEffect
         (0, l.useEffect)(() => {
             let gridCopyForDeath = gameState.grid.map((row) => row.map((cell) => ({ ...cell })));
             let deathMessages = [];
             let gridChangedDueToDeath = false;
             const currentOxygen = gameState.oxygenLevel;
-
             gridCopyForDeath.forEach((row, r_idx) => {
             row.forEach((cell, c_idx) => {
                 const isHumanInHouse = cell.owner === "human" && cell.content === "house";
                 const isHumanOnGrid = cell.content === "human" && cell.owner !== "human";
-
                 if (isHumanInHouse || isHumanOnGrid) {
                     if (currentOxygen < 20 || currentOxygen > 30) {
                         deathMessages.push(
@@ -188,7 +184,6 @@
                 }
             });
             });
-
             if (deathMessages.length > 0) {
               deathMessages.forEach(addMessage);
             }
@@ -197,7 +192,6 @@
             }
         }, [gameState.oxygenLevel, gameState.grid, gameState.plantCount, gameState.humanCount, addMessage, updateGridAndStats]);
 
-        // 尸体腐烂 useEffect
         (0, l.useEffect)(() => {
             const decayTimers = [];
             gameState.grid.flat().forEach((cell) => {
@@ -208,7 +202,6 @@
                     const newGrid = prev.grid.map((r, rIndex) => r.map((c, cIndex) => {
                         if (rIndex === Math.floor(cell.id / 4) && cIndex === (cell.id % 4)) {
                             if (c.isDecaying && (c.content === "human-dead" || c.content === "tiger-dead")) {
-                                addMessage(`一具${c.content === "human-dead" ? "骸骨" : "老虎残骸"}消失了。`);
                                 gridNeedsUpdate = true;
                                 return {...c, content: null, isDecaying: false };
                             }
@@ -216,10 +209,9 @@
                         return c;
                     }));
                     if (gridNeedsUpdate) {
-                         // Call updateGridAndStats directly if grid changed, instead of relying on the setGameState's return
-                         // This ensures stats are updated based on the very latest grid.
+                         addMessage(`一具${cell.content === "human-dead" ? "骸骨" : "老虎残骸"}消失了。`);
                          updateGridAndStats(newGrid, 0);
-                         return {...prev, grid: newGrid}; // Still return the new state for React
+                         return {...prev, grid: newGrid};
                     }
                     return prev;
                 });
@@ -228,15 +220,12 @@
             }
             });
             return () => decayTimers.forEach(clearTimeout);
-        }, [gameState.grid, addMessage, updateGridAndStats]); // updateGridAndStats is a dependency now
+        }, [gameState.grid, addMessage, updateGridAndStats]);
 
-
-        // 火焰熄灭 useEffect
         (0, l.useEffect)(() => {
             let gridChangedByFireOut = false;
             let gridAfterFireOut = gameState.grid.map(row => row.map(cell => ({ ...cell })));
             const currentTime = Date.now();
-
             gameState.grid.flat().forEach((cell) => {
             if (cell.content === "fire" && cell.fireEndTime && currentTime >= cell.fireEndTime) {
                 const r = Math.floor(cell.id / 4);
@@ -248,14 +237,11 @@
                 addMessage("火焰熄灭了，留下了一片肥沃的草木灰土地。");
             }
             });
-
             if (gridChangedByFireOut) {
               updateGridAndStats(gridAfterFireOut, 0);
             }
         }, [gameState.grid, addMessage, updateGridAndStats]);
 
-
-        // 第三关倒计时 useEffect
         (0, l.useEffect)(() => {
             let countdownIntervalId;
             if (gameState.currentLevel === 3 && gameState.timeLeft > 0 && !gameState.isGameOver && !gameState.isRaining) {
@@ -264,21 +250,16 @@
                 }, 1000);
             } else if (gameState.currentLevel === 3 && gameState.timeLeft === 0 && !gameState.isGameOver && !gameState.isRaining) {
                 addMessage("120秒到！持续强降雨，引发大洪水！");
-                setGameState(gs => ({ ...gs, isRaining: true, timeLeft: -1 })); // Mark timeLeft as handled, start rain
+                setGameState(gs => ({ ...gs, isRaining: true, timeLeft: -1 }));
             }
             return () => clearInterval(countdownIntervalId);
         }, [gameState.currentLevel, gameState.timeLeft, gameState.isGameOver, gameState.isRaining, addMessage]);
 
-        // 第三关下雨及洪水效果 useEffect - 规则1 (新列表)
         (0, l.useEffect)(() => {
             let floodTimeoutId;
             if (gameState.currentLevel === 3 && gameState.isRaining) {
-                // Rain visuals are active because isRaining is true
                 floodTimeoutId = setTimeout(() => {
-                    // This callback executes after 3 seconds of rain
                     setGameState(prevGs => {
-                        // Double check if we are still in the raining state for level 3
-                        // This prevents applying flood if the game reset during the 3s timeout
                         if (prevGs.currentLevel === 3 && prevGs.isRaining) {
                             let newGridAfterFlood = prevGs.grid.map(row =>
                                 row.map(cell => {
@@ -296,15 +277,12 @@
                                     return tempCell;
                                 })
                             );
-
-                            // Calculate stats and oxygen based on the new grid after flood
                             let newPlantCount = 0;
                             let newHumanCountForDisplay = 0;
                             let newTigerCount = 0;
                             let newWoodCount = 0;
                             let activeHumansForOxygen = 0;
                             let calculatedOxygen = 0;
-
                             newGridAfterFlood.flat().forEach((cell) => {
                               if (cell.content === "plant") {
                                 newPlantCount++;
@@ -317,12 +295,11 @@
                             });
                             calculatedOxygen -= 5 * activeHumansForOxygen;
                             const finalOxygen = Math.max(0, Math.min(100, calculatedOxygen));
-
                             return {
                                 ...prevGs,
                                 grid: newGridAfterFlood,
-                                isRaining: false, // Rain stops
-                                isGameOver: false, // Game continues in Level 3
+                                isRaining: false,
+                                isGameOver: false,
                                 messages: [...prevGs.messages.slice(-5), "洪水退去。有草木灰的地方土地肥沃（植物产氧10%），其余土地贫瘠（植物产氧1%）。草木灰可以增加土壤肥力！"],
                                 oxygenLevel: finalOxygen,
                                 plantCount: newPlantCount,
@@ -331,15 +308,14 @@
                                 woodCount: newWoodCount,
                             };
                         }
-                        // If not in level 3 anymore or rain already stopped, just ensure isRaining is false.
                         return { ...prevGs, isRaining: false };
                     });
-                }, 3000); // Flood effects apply after 3 seconds of rain
+                }, 3000);
             }
             return () => {
                 clearTimeout(floodTimeoutId);
             };
-        }, [gameState.currentLevel, gameState.isRaining]); // Only depends on these to trigger/cleanup the timeout
+        }, [gameState.currentLevel, gameState.isRaining]);
 
 
         const saveHistory = () => {
@@ -383,9 +359,17 @@
                 if (null === clickedCell.content || ("ash" === clickedCell.content && "plant" === selectedItem)) {
                     if ("plant" === selectedItem) {
                         clickedCell.content = "plant";
-                        clickedCell.isFertile = ("ash" === clickedCell.content) || clickedCell.isFertile;
-                        message = "放置了植物";
-                        directOxygenDelta += 10;
+                        // The cell's isFertile status is determined by its history (ash or post-flood)
+                        // This will be used by updateGridAndStats for ongoing oxygen calculation
+                        // For the one-time action of planting:
+                        if (gameState.currentLevel === 3 && !clickedCell.isFertile && clickedCell.content !== 'ash') {
+                             directOxygenDelta += 1; // Plant on infertile land in L3
+                             message = "在贫瘠土地上种植了植物";
+                        } else {
+                             directOxygenDelta += 10; // Plant on fertile/ash land or not L3
+                             message = "放置了植物";
+                        }
+                        clickedCell.isFertile = ("ash" === clickedCell.content) || clickedCell.isFertile; // Ensure ash is marked fertile
                         gridReallyChanged = true;
                     } else if ("human" === selectedItem) {
                         clickedCell.content = "human";
@@ -519,12 +503,14 @@
                      }
                 }
 
-                if (finalMessage && finalMessage !== message && finalMessage.trim() !== "") { // Ensure non-empty and different
-                     addMessage(finalMessage);
+                if (finalMessage && finalMessage !== message && finalMessage.trim() !== "") {
+                     updateGridAndStats(tempGrid, directOxygenDelta, finalMessage);
                 } else if (message && message.trim() !== "") {
-                     addMessage(message);
+                     updateGridAndStats(tempGrid, directOxygenDelta, message);
+                } else {
+                     updateGridAndStats(tempGrid, directOxygenDelta);
                 }
-                updateGridAndStats(tempGrid, directOxygenDelta);
+
 
             } else if (message && message.trim() !== "") {
                 addMessage(message);
@@ -697,20 +683,19 @@
                             const targetLevel = gameState.currentLevel < 3 ? gameState.currentLevel + 1 : 1;
                             const initialMessage = targetLevel === 1 ? "欢迎来到生态保护游戏！" : `欢迎来到关卡 ${targetLevel}`;
                             const transitionMessage = gameState.currentLevel === 3 && targetLevel === 1 ? "游戏结束，重新开始第一关" : `进入关卡 ${targetLevel}`;
-                            addMessage(transitionMessage);
 
-                            setGameState({ // Directly set the full initial state for the new/reset level
+                            setGameState({
                                 grid: newGrid,
-                                oxygenLevel: 0, // Crucial: Reset oxygen for new level
+                                oxygenLevel: 0,
                                 plantCount: 0,
                                 humanCount: 0,
                                 tigerCount: 0,
                                 woodCount: 0,
                                 currentLevel: targetLevel,
                                 timeLeft: 120,
-                                messages: [initialMessage],
+                                messages: [initialMessage, transitionMessage].filter(Boolean).slice(-5), // Ensure messages are reset and clean
                                 isGameOver: false,
-                                isRaining: false, // Ensure rain is stopped on level change
+                                isRaining: false,
                                 lastPlantConsumedByHumansCount: 0,
                             });
                             setSelectedItem(null);
